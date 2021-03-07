@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app: predict-pointnet
+  name: predict-pointnet
+spec:
+  template:
+    metadata:
+      labels:
+        app: predict-pointnet
+    spec:
+      restartPolicy: "Never"
+      containers:
+      - name: predict-pointnet
+        command: ["/bin/sh", "-c"]
+        args: 
+        - pip install pyquaternion && 
+          mkdir /data && cp -R /root/data/haosu /data/ && cd /data/haosu && 
+          unzip -q testing_data_pose.zip && unzip -q models.zip && mkdir /data/haosu/training_data && cp /data/haosu/objects_v1.csv /data/haosu/training_data &&
+          cd /root/icp/ && python3 predict.py && cp pointnet.json /root/data/haosu
+        resources:
+          limits:
+            cpu: "8"
+            memory: "12Gi"
+            nvidia.com/gpu: 1
+            ephemeral-storage: 50Gi
+          requests:
+            cpu: "8"
+            memory: "8Gi"
+            nvidia.com/gpu: 1
+            ephemeral-storage: 50Gi
+        image: gitlab-registry.nautilus.optiputer.net/vivecenter-berkeley-edu/icp:latest
+        volumeMounts:
+        - mountPath: /root/data
+          name: fs-store
+        - mountPath: /dev/shm
+          name: dshm
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+      - name: fs-store
+        flexVolume:
+          driver: ceph.rook.io/rook
+          fsType: ceph
+          options:
+            clusterNamespace: rook
+            fsName: nautilusfs
+            path: /half-potato
+            mountUser: half-potato
+            mountSecret: ceph-fs-secret
+      imagePullSecrets:
+      - name: regcredlp # this is the secret for you credentials to pull a private image
+
+
+

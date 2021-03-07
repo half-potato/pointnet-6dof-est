@@ -1,0 +1,36 @@
+FROM pytorch/pytorch:1.7.1-cuda11.0-cudnn8-runtime
+LABEL maintainer "Alexander Mai alexandertmai@gmail.com"
+
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/:/usr/local/lib
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Python takes longer with install
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends dialog apt-utils \
+    && apt-get install -y --no-install-recommends \
+        # misc
+        python3 python3-pip \
+        wget apt-utils unzip build-essential sudo ca-certificates net-tools vim git cmake tmux openssh-client pigz \
+        # open3d
+        libglfw3-dev libglew-dev libeigen3-dev openmpi-common openmpi-bin libboost1.65-dev tmux magic-wormhole \
+    && pip3 install setuptools wheel
+
+RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+
+ENV MINICONDA_VERSION latest
+ENV CONDA_DIR=/opt/conda \
+    SHELL=/bin/bash \
+    PATH=/opt/conda/bin:$PATH
+
+SHELL ["/bin/bash", "-c"]
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+
+RUN echo "imap fd <Esc>" > ~/.vimrc
+RUN apt-get install -y --no-install-recommends libusb-1.0-0
+
+ADD ./requirements.txt /root/
+RUN pip3 install -r /root/requirements.txt
+
+ADD . /root/icp
+WORKDIR /root/
+

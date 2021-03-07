@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app: icp
+  name: icp
+spec:
+  template:
+    metadata:
+      labels:
+        app: icp
+    spec:
+      restartPolicy: "Never"
+      containers:
+      - name: icp
+        command: ["/bin/sh", "-c"]
+        args: 
+        - pip install pyquaternion && 
+          mkdir /data && cp -R /root/data/haosu /data/ && cd /data/haosu && 
+          unzip training_data.zip && unzip testing_data_pose.zip && unzip models.zip && 
+          cd /root/icp/ && python3 test.py && mv cpd.json /root/data/haosu
+        resources:
+          limits:
+            cpu: "32"
+            memory: "8Gi"
+            # nvidia.com/gpu: 1 # 8 is the max if you have a max of 8 GPUs per a machine, which we do
+            ephemeral-storage: 50Gi
+          requests:
+            cpu: "32"
+            memory: "2Gi"
+            # nvidia.com/gpu: 1 # 8 is the max if you have a max of 8 GPUs per a machine, which we do
+            ephemeral-storage: 50Gi
+        image: gitlab-registry.nautilus.optiputer.net/vivecenter-berkeley-edu/icp:latest
+        volumeMounts:
+        - mountPath: /root/data
+          name: fs-store
+        - mountPath: /dev/shm
+          name: dshm
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+      - name: fs-store
+        flexVolume:
+          driver: ceph.rook.io/rook
+          fsType: ceph
+          options:
+            clusterNamespace: rook
+            fsName: nautilusfs
+            path: /half-potato
+            mountUser: half-potato
+            mountSecret: ceph-fs-secret
+      imagePullSecrets:
+      - name: regcredlp # this is the secret for you credentials to pull a private image
+

@@ -1,0 +1,15 @@
+trimesh
+open3d
+icecream
+pandas
+tqdm
+imgaug
+pycollada
+transforms3d
+tensorboard
+pyquaternion
+pytorch3d
+pyyaml
+opencv-python
+matplotlib
+h5py

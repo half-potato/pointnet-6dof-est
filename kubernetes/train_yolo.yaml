@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app: train-yolo
+  name: train-yolo
+spec:
+  template:
+    metadata:
+      labels:
+        app: train-yolo
+    spec:
+      restartPolicy: "Never"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: gpu-type
+                operator: In
+                values:
+                  - '2080Ti'
+                  - '1080Ti'
+      containers:
+      - name: train-yolo
+        command: ["/bin/sh", "-c"]
+        args: 
+        - cd /root/mish-cuda && pip install . &&
+          cd /root/icp/ops && pip install . &&
+          mkdir /data && cp -R /root/data/haosu /data/ && cd /data/haosu && 
+          unzip -q training_data.zip && unzip -q testing_data_pose.zip && unzip -q models.zip && 
+          cp /root/icp/yolov4-p5.pt /root/ScaledYOLOv4 &&
+          cd /root/icp/ && python3 src/export_bbx.py --use_full &&
+          cd /root/ScaledYOLOv4/ && python train.py --data /root/icp/haosu.yaml --hyp data/hyp.scratch.yaml --cfg models/yolov4-p5.yaml --device 0 --adam --batch-size 16 --img-size 640 360
+        resources:
+          limits:
+            cpu: "8"
+            memory: "12Gi"
+            nvidia.com/gpu: 1
+            ephemeral-storage: 50Gi
+          requests:
+            cpu: "8"
+            memory: "8Gi"
+            nvidia.com/gpu: 1
+            ephemeral-storage: 50Gi
+        image: gitlab-registry.nautilus.optiputer.net/vivecenter-berkeley-edu/icp:latest
+        volumeMounts:
+        - mountPath: /root/data
+          name: fs-store
+        - mountPath: /dev/shm
+          name: dshm
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+      - name: fs-store
+        flexVolume:
+          driver: ceph.rook.io/rook
+          fsType: ceph
+          options:
+            clusterNamespace: rook
+            fsName: nautilusfs
+            path: /half-potato
+            mountUser: half-potato
+            mountSecret: ceph-fs-secret
+      imagePullSecrets:
+      - name: regcredlp # this is the secret for you credentials to pull a private image
+
+
+
