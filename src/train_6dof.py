@@ -14,7 +14,7 @@ base_path = Path("/data/haosu")
 device = torch.device("cuda:0")
 pc_loader = loader.TrainLoader(base_path, "train", [20, 500, 1000])
 #  batch_accum = loader.BatchAccumulator(pc_loader, 128)
-dataset = torch.utils.data.DataLoader(pc_loader, num_workers=16, batch_size=32, collate_fn=loader.collate_fn, shuffle=True)
+dataset = torch.utils.data.DataLoader(pc_loader, num_workers=16, batch_size=6, collate_fn=loader.collate_fn, shuffle=True)
 #  dataset = torch.utils.data.DataLoader(pc_loader, num_workers=16, batch_size=4, collate_fn=loader.collate_fn, shuffle=True)
 
 meshes = mesh_sampler.MeshSampler(base_path, base_path / "training_data/objects_v1.csv")

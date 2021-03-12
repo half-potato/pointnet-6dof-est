@@ -2,4 +2,4 @@ classes = 79
 train = /data/haosu/traininglist.txt
 valid = /data/haosu/vallist.txt
 backup = backup/
-names = data/obj.names
+names = /data/haosu/obj.names

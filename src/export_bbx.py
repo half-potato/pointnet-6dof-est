@@ -11,6 +11,7 @@ args = parser.parse_args()
 base_path = Path('/data/haosu')
 
 def export(prefix):
+    print(f"Exporting boxes for {prefix}")
     dataset = loader.PCDDataset(base_path, prefix, use_full=args.use_full)
     for i in tqdm(range(len(dataset))):
         rgb, depth, label, meta = dataset.load_raw(i)

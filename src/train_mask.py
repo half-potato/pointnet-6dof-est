@@ -1,5 +1,5 @@
 from models.simple_mask import SimpleMask
-from models.pointnet2_sem_seg import get_model, get_loss
+#  from models.pointnet2_sem_seg import get_model, get_loss
 import mesh_sampler
 import open3d
 from pathlib import Path
@@ -10,14 +10,17 @@ import time
 import argparse
 from frustrum_loader import create_loaders
 import utils
-torch.autograd.set_detect_anomaly(True)
+import random
+#  torch.autograd.set_detect_anomaly(True)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--base_path', type=Path, default=Path("/data/haosu"))
 parser.add_argument('--save_dir', type=Path, default=Path("./"))
 parser.add_argument('--lr', default=1e-3, type=float)
-parser.add_argument('--epochs', default=200, type=int)
-parser.add_argument('--max_points', default=30000, type=int)
+parser.add_argument('--epochs', default=500, type=int)
+parser.add_argument('--max_points', default=120000, type=int)
+parser.add_argument('--cache_location', default=Path('caches/frustrum_cache.hdf5'), type=Path)
+
 args = parser.parse_args()
 
 base_path = args.base_path
@@ -31,17 +34,17 @@ loss_fn = torch.nn.CrossEntropyLoss()
 #  loss_fn = get_loss()
 #  loss_fn = torch.nn.NLLLoss(reduction='sum')
 #  model = get_model(NUM_OBJECTS).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-4)
-#  optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-ckpt = torch.load("mask_chpt.pth")
+optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0)
+ckpt = torch.load("/data/haosu/mask_chpt.pth")
 model.load_state_dict(ckpt["model"])
 
 #  points = Variable(torch.rand(32,6,2500)).to(device)
 
 print("Reading data")
-loaders, point_number_groups = create_loaders('caches/frustrum_cache.hdf5', calib)
-dataloaders = [torch.utils.data.DataLoader(loader, batch_size=int(args.max_points/loader.n+1), shuffle=True, num_workers=0, drop_last=False) for loader in loaders if len(loader) > 1]
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 10, gamma=0.7)
+loaders, point_number_groups, data = create_loaders(args.cache_location, calib)
+
+dataloaders = [torch.utils.data.DataLoader(loader, batch_size=int(args.max_points//loader.n), shuffle=True, num_workers=1, drop_last=True) for loader in loaders if len(loader) > 1]
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 50, gamma=0.7)
 
 def save():
     torch.save({
@@ -50,41 +53,59 @@ def save():
     }, args.save_dir / "mask_chpt.pth")
 
 weights = torch.ones((NUM_OBJECTS)).to(device)
+
 #  vals = torch.rand(3, NUM_OBJECTS, 1000, requires_grad=True, device=device)
 #  optimizer = torch.optim.Adam([vals], lr=1e-1)
 #  labels = torch.zeros((32, 2500), dtype=torch.long).to(device)
 #  labels[:, :] = 1
+
 print("Started")
 for epoch in range(args.epochs):
     total_loss = 0
     accuracy = 0
     n = 0
 
-    for dataloader in dataloaders:
-        for points, labels, label in dataloader:
-            # Data preproc
-            #  print(points[:, 0, 0].sort().values)
-            points = points.to(device)
-            labels = labels.to(device)
-            N = points.shape[2]
+    dsl = [iter(dataloader) for dataloader in dataloaders]
+    dsi = list(range(len(dsl)))
+    weights = [len(dataloader)/dataloader.batch_size for dataloader in dataloaders]
 
-            #  utils.draw_augpoints([points.cpu().numpy()[0]], False, True)
-            mask = model(points)
-            #  mask = torch.nn.Softmax(1)(vals)
-            #  out_mask = mask.transpose(1, 2).reshape(-1, NUM_OBJECTS)
-            out_mask = mask.reshape(-1, NUM_OBJECTS)
-            loss = loss_fn(out_mask, labels.reshape(-1))
+    while len(dsi) > 0:
+        i = random.choices(list(range(len(dsi))), weights=weights, k=1)[0]
+        di = dsi[i]
+        try:
+            points, labels = dsl[di].next()
+            weights[i] -= 1
+        except:
+            del dsi[i]
+            del weights[i]
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            #  print(float(loss))
+        points = points.to(device)
+        labels = labels.to(device)
+        N = points.shape[2]
+        if points.shape[0] <= 1:
+            continue
 
-            total_loss += float(loss)
-            accuracy += float((out_mask.max(dim=-1).indices == labels.reshape(-1)).float().mean())
-            n += 1
+        #  utils.draw_augpoints([points.cpu().numpy()[0]], False, True)
+        mask = model(points)
+        #  mask = torch.nn.Softmax(1)(vals)
+        #  out_mask = mask.transpose(1, 2).reshape(-1, NUM_OBJECTS)
+        out_mask = mask.reshape(-1, NUM_OBJECTS)
+        loss = loss_fn(out_mask, labels.reshape(-1))
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        #  print(float(loss))
+
+        total_loss += float(loss)
+        acc = float((out_mask.max(dim=-1).indices == labels.reshape(-1)).float().mean())
+        accuracy += acc
+        #  print(float(loss))
+        #  print(float(acc))
+        n += 1
+    print(f"{epoch}: Total loss: {total_loss/n}, Accuracy: {accuracy/n}, LR: {scheduler.get_lr()}, N: {n}")
     scheduler.step()
-    print(f"{epoch}: Total loss: {total_loss/n}, Accuracy: {accuracy/n}")
     save()
 
 save()
+data.close()

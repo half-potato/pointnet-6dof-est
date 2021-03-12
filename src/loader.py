@@ -6,7 +6,7 @@ import torch
 from pathlib import Path
 from torch.utils.data.dataset import Dataset, IterableDataset
 from PIL import Image
-import fps_cuda
+#  import fps_cuda
 
 import matplotlib.pyplot as plt
 
@@ -32,6 +32,11 @@ def to_geometry(obj):
 
     return pcd, bbx
 
+def get_training_set_items(base_path, prefix):
+    path = base_path / 'training_data' / 'v2.2' / f'{prefix}_meta.pkl'
+    meta = load_pickle(path)
+    return meta['object_ids']
+
 
 class PCDDataset(Dataset):
     def __init__(self, base_path, split_name, use_full=True):
@@ -39,13 +44,15 @@ class PCDDataset(Dataset):
         self.base_path = base_path
         if split_name in ["val", "train"]:
             self.data_dir = self.base_path / "training_data" / "v2.2"
-        else:
+        elif split_name == 'test':
             self.data_dir = self.base_path / "testing_data" / "v2.2"
+        elif split_name == 'test_perception':
+            self.data_dir = self.base_path / "testing_data_perception" / "v2.2"
         self.rgb_files, self.depth_files, self.label_files, self.meta_files, self.prefix = self.get_split_files(split_name)
 
     def get_split_files(self, split_name):
-        if split_name == "test":
-            names = [fname.split("_")[0] for fname in os.listdir(self.data_dir) if "meta.pkl" in fname]
+        if split_name == "test" or split_name == 'test_perception':
+            names = [fname.split("_")[0] for fname in os.listdir(self.data_dir) if "color" in fname]
         else:
             with open(self.base_path / "training_data" / "splits" / "v2" / f"{split_name}.txt", 'r') as f:
                 names = [line.strip() for line in f if line.strip()]
@@ -67,9 +74,10 @@ class PCDDataset(Dataset):
         depth = np.array(Image.open(self.depth_files[i])) / 1000 # to meters
         if os.path.exists(self.label_files[i]):
             label = np.array(Image.open(self.label_files[i]))
+            meta = load_pickle(self.meta_files[i])
         else:
             label = None
-        meta = load_pickle(self.meta_files[i])
+            meta = None
         return rgb, depth, label, meta
 
     def get_bbxs(self, label, meta, margin=5):
@@ -91,13 +99,14 @@ class PCDDataset(Dataset):
         return bbxs
 
     def __len__(self):
-        return len(self.rgb_files) if self.use_full else 10
+        return len(self.rgb_files) if self.use_full else 10000
 
     def __getitem__(self, i):
         prefix = self.prefix[i]
         rgb, depth, label, meta = self.load_raw(i)
         v, u = np.indices(depth.shape)
         uv1 = np.stack([u + 0.5, v + 0.5, np.ones_like(depth)], axis=-1)
+        #  points = uv1 @ np.linalg.inv(meta["intrinsic"]).T * depth[..., None] # [H, W, 3]
         points = uv1 @ np.linalg.inv(meta["intrinsic"]).T * depth[..., None] # [H, W, 3]
         # augment points and transform
         H, W, _ = points.shape
@@ -124,6 +133,17 @@ class PCDDataset(Dataset):
                 data["pose"] = meta["poses_world"][idx]
             objects.append(data)
         return objects, prefix
+
+class MaskLoader(Dataset):
+    def __init__(self, base_path, split_name):
+        self.pcddata = PCDDataset(base_path, split_name)
+
+    def __getitem__(self, i):
+        rgb, depth, label, meta = self.pcddata.load_raw(i)
+        return (np.rollaxis(rgb, 2, 0)/255.).astype(np.float32), label.astype(np.long)
+
+    def __len__(self):
+        return len(self.pcddata)
 
 class TrainLoader(Dataset):
     def __init__(self, base_path, split_name, point_number_groups):

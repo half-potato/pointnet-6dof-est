@@ -18,17 +18,34 @@ parser.add_argument('--use_full', action='store_true')
 args = parser.parse_args()
 
 base_path = Path('/data/haosu')
-output_dir = Path('~/ScaledYOLOv4/inference/output/')
 dataset = loader.PCDDataset(base_path, 'train', use_full=args.use_full)
 #  point_number_groups = [50, 500, 1000, 5000, 7000, 9000, 11000, 15000, 20000, 50000, 100000]
 point_number_groups = [1024, 3000, 5000, 7000, 9000, 11000, 15000, 20000, 50000, 100000]
 calib = [514.13902522, 514.13902522, 640, 360, 1280, 720]
-pcs, labs, bbxs = [[] for _ in point_number_groups], [[] for _ in point_number_groups], [[] for _ in point_number_groups]
-for i in tqdm(range(len(dataset))):
+print("Caching frustrums")
+
+f = h5py.File('caches/frustrum_cache.hdf5', 'w')
+f.create_dataset('point_nums', data=point_number_groups)
+
+pgs = [f.create_group(f'point_group{i}-{j}') for i, j in enumerate(point_number_groups)]
+for pg, n in zip(pgs, point_number_groups):
+    pg.create_dataset('bbxs', (0, 5), maxshape=(None, 5), chunks=True)
+    pg.create_dataset('pcs', (0, n, 7), maxshape=(None, n, 7), chunks=True)
+
+counts = [0 for _ in point_number_groups]
+def add_to_group(g, bbx, pc):
+    N = pgs[g]['bbxs'].shape[0]
+    pgs[g]['bbxs'].resize(N+1, axis=0)
+    pgs[g]['bbxs'][N] = bbx
+    pgs[g]['pcs'].resize(N+1, axis=0)
+    pgs[g]['pcs'][N] = pc
+
+    counts[g] += 1
+
+for i in tqdm(range(0, len(dataset), 5)):
     # Get frustrums
     raw = dataset.load_raw(i)
     rgb, depth, label, meta = raw
-    #  bbxs = dataset.load_bbxs(i, output_dir)
     fbbxs = dataset.get_bbxs(label, meta, margin=5)
 
     #  H, W = label.shape[:2]
@@ -56,9 +73,11 @@ for i in tqdm(range(len(dataset))):
             inds = np.random.choice(M, N, replace=True)
             pc = pc[inds]
             #  pc = np.concatenate([pc, pad], axis=0)
-            labs[0].append(lab)
-            pcs[0].append(pc)
-            bbxs[0].append(bbx)
+            #  g = pgs[0].create_group(f'{counts[0]}')
+            #  g.create_dataset(f'lab', [lab])
+            #  g.create_dataset(f'bbx', data=bbx)
+            #  g.create_dataset(f'pc', data=pc)
+            add_to_group(0, bbx, pc)
             continue
         N = Ns[-1]
 
@@ -67,7 +86,7 @@ for i in tqdm(range(len(dataset))):
         pc = pc[pc_i]
 
         # Display cloud
-        utils.draw_augpoints([pc], True)
+        #  utils.draw_augpoints([pc], True)
         """
         print(pc.shape)
         npc = frustrum_loader.center_frustrum(torch.tensor(pc.T).float(), bbx, calib).numpy().T
@@ -100,17 +119,10 @@ for i in tqdm(range(len(dataset))):
 
         # Add frustrums to each category
         G = len(Ns)-1
-        labs[G].append(lab)
-        pcs[G].append(pc)
-        bbxs[G].append(bbx)
+        add_to_group(G, bbx, pc)
 
-# Save cache
-f = h5py.File('caches/frustrum_cache.hdf5', 'w')
-f.create_dataset('point_nums', data=point_number_groups)
-for i, pg in enumerate(pcs):
-    f.create_dataset(f'pcs{i}', data=pg)
-for i, pg in enumerate(labs):
-    f.create_dataset(f'labs{i}', data=pg)
-for i, pg in enumerate(bbxs):
-    f.create_dataset(f'bbxs{i}', data=pg)
+print("Sizes of point groups")
+for num_pt, n in zip(point_number_groups, counts):
+    print(f'{num_pt}: {n}')
+f.create_dataset('counts', data=counts)
 f.close()

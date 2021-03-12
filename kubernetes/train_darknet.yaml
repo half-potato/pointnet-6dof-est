@@ -2,13 +2,13 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   labels:
-    app: train-yolo
-  name: train-yolo
+    app: train-darknet
+  name: train-darknet
 spec:
   template:
     metadata:
       labels:
-        app: train-yolo
+        app: train-darknet
     spec:
       restartPolicy: "Never"
       affinity:
@@ -22,17 +22,16 @@ spec:
                   - '2080Ti'
                   - '1080Ti'
       containers:
-      - name: train-yolo
+      - name: train-darknet
         command: ["/bin/sh", "-c"]
         args: 
-        - cd /root/ && git clone https://github.com/half-potato/pointnet-6dof-est icp &&
-          cd /root/icp/ops && pip install . &&
+        - mkdir /root/backup &&
           mkdir /data && cp -R /root/data/haosu /data/ && cd /data/haosu && 
           unzip -q training_data.zip && unzip -q testing_data_pose.zip && unzip -q models.zip && 
-          cp /root/icp/yolov4-p5.pt /root/ScaledYOLOv4 &&
           cd /root/icp/ && python3 src/export_bbx.py --use_full &&
           cd /root/ && wget https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v4_pre/yolov4-tiny.conv.29 &&
-          cd /root/ScaledYOLOv4/ && python train.py --data /root/icp/haosu.yaml --hyp data/hyp.scratch.yaml --cfg models/yolov4-p5.yaml --device 0 --adam --batch-size 16 --img-size 640 360
+          /root/darknet/darknet detector train /data/haosu/obj.data /data/haosu/yolov4-tiny.cfg yolov4-tiny.conv.29
+          #darknet detector train /data/haosu/obj.data /data/haosu/yolov4-tiny.cfg yolov4-tiny.conv.29
         resources:
           limits:
             cpu: "8"
@@ -44,7 +43,7 @@ spec:
             memory: "8Gi"
             nvidia.com/gpu: 1
             ephemeral-storage: 50Gi
-        image: daisukekobayashi/darknet:gpu-cc62
+        image: gitlab-registry.nautilus.optiputer.net/vivecenter-berkeley-edu/overlap_lib:latest
         volumeMounts:
         - mountPath: /root/data
           name: fs-store

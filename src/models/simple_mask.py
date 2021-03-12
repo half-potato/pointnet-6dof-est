@@ -12,7 +12,10 @@ class SimpleMask(nn.Module):
         self.num_objects = num_objects
         self.net = PointNetfeat(k, enable_transform=False, global_feat=False, feature_transform=True)
         self.seq = nn.Sequential(
-            torch.nn.Conv1d(1024, 256, 1),
+            torch.nn.Conv1d(1024, 512, 1),
+            nn.BatchNorm1d(512),
+            torch.nn.ReLU(True),
+            torch.nn.Conv1d(512, 256, 1),
             nn.BatchNorm1d(256),
             torch.nn.ReLU(True),
             torch.nn.Conv1d(256, self.num_objects, 1),

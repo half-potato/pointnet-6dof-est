@@ -8,31 +8,44 @@ from PIL import Image
 from pyquaternion import Quaternion
 import math
 import h5py
+import time
 
 def create_loaders(cache_path, calib):
     data = h5py.File(cache_path, 'r')
     point_number_groups = data['point_nums']
+    #  counts = data['counts']
     loaders = []
     for i in range(len(point_number_groups)):
-        loaders.append(FrustrumLoader(data[f'pcs{i}'], data[f'labs{i}'], data[f'bbxs{i}'], point_number_groups[i], calib))
-    return loaders, point_number_groups
+        group = data[f'point_group{i}-{point_number_groups[i]}']
+        n = group['bbxs'].shape[0]
+        print(n)
+        #  n = counts[i]
+        loaders.append(FrustrumLoader(group, n, point_number_groups[i], calib))
+        #  loaders.append(FrustrumLoader(data[f'pcs{i}'], data[f'labs{i}'], data[f'bbxs{i}'], point_number_groups[i], calib))
+    return loaders, point_number_groups, data
 
 class FrustrumLoader(Dataset):
-    def __init__(self, pcs, labs, bbxs, n, calib):
-        self.pcs = pcs
-        self.labs = labs
-        self.bbxs = bbxs
-        self.n = n
+    def __init__(self, group, N, n, calib):
+        self.group = group
+        self.N = N # number of elements in group
+        self.n = n # number of points per element
         self.calib = calib
+        self.k = 1
 
     def __len__(self):
-        return len(self.pcs)
+        return self.N // self.k
 
     def __getitem__(self, i):
-        points = torch.tensor(self.pcs[i])[:, 1:].transpose(0, 1).float()
-        labels = torch.tensor(self.pcs[i])[:, 0].long()
+        #  grp = self.group[f'{i}']
+        i = i // self.k
+        cloud = self.group['pcs'][i]
+        bbx = self.group['bbxs'][i]
+
+        points = torch.tensor(cloud)[:, 1:].transpose(0, 1).float()
+        labels = torch.tensor(cloud)[:, 0].long()
         labels = torch.clip(labels, 0, 79)
-        return center_frustrum(points, self.bbxs[i], self.calib), labels, self.labs[i].astype(np.long)
+
+        return center_frustrum(points, bbx, self.calib), labels
 
 
 def center_frustrum(points, bbx, calib, labeled=False):
@@ -53,13 +66,15 @@ def center_frustrum(points, bbx, calib, labeled=False):
     rotp[si:] -= ncenters
     return rotp
 
-def extract_frustrums(raw, bbxs):
+def extract_frustrums(raw, bbxs, intrinsic=None, margin=0):
     rgb, depth, label, meta = raw
+    if intrinsic is None:
+        intrinsic = meta['intrinsic']
     H, W = rgb.shape[:2]
     # Points
     v, u = np.indices(depth.shape)
     uv1 = np.stack([u + 0.5, v + 0.5, np.ones_like(depth)], axis=-1)
-    points = uv1 @ np.linalg.inv(meta["intrinsic"]).T * depth[..., None] # [H, W, 3]
+    points = uv1 @ np.linalg.inv(intrinsic).T * depth[..., None] # [H, W, 3]
 
     if label is None:
         label = np.zeros((H, W, 1))
@@ -69,9 +84,9 @@ def extract_frustrums(raw, bbxs):
     for bbx in bbxs:
         # First, make sure bbxs are not out of bounds
         lab, cx, cy, w, h = bbx
-        t = int(max(cy-h/2, 0) * H)
-        b = int(min(cy+h/2, 1) * H)
-        l = int(max(cx-w/2, 0) * W)
-        r = int(min(cx+w/2, 1) * W)
+        t = int(max(cy-h/2-margin, 0) * H)
+        b = int(min(cy+h/2+margin, 1) * H)
+        l = int(max(cx-w/2-margin, 0) * W)
+        r = int(min(cx+w/2+margin, 1) * W)
         frustrums.append((augpoints[t:b, l:r].reshape(-1, D), lab))
     return frustrums
