@@ -7,10 +7,14 @@ from pathlib import Path
 from torch.utils.data.dataset import Dataset, IterableDataset
 from PIL import Image
 #  import fps_cuda
+import mesh_sampler
 
 import matplotlib.pyplot as plt
 
 NUM_OBJECTS = 79
+
+intrinsic = np.load('intrinsic.npy')
+extrinsic = np.load('extrinsic.npy')
 
 def load_pickle(filename):
     # keys:  'extents', 'scales', 'object_ids', 'object_names', 'extrinsic', 'intrinsic'
@@ -39,8 +43,9 @@ def get_training_set_items(base_path, prefix):
 
 
 class PCDDataset(Dataset):
-    def __init__(self, base_path, split_name, use_full=True):
+    def __init__(self, base_path, split_name, use_full=True, meshes=None, output_dir=None):
         self.use_full = use_full
+        self.meshes = meshes
         self.base_path = base_path
         if split_name in ["val", "train"]:
             self.data_dir = self.base_path / "training_data" / "v2.2"
@@ -48,10 +53,17 @@ class PCDDataset(Dataset):
             self.data_dir = self.base_path / "testing_data" / "v2.2"
         elif split_name == 'test_perception':
             self.data_dir = self.base_path / "testing_data_perception" / "v2.2"
+        elif split_name == 'test_final':
+            self.data_dir = self.base_path / "testing_data_final" / "v2.2"
+        if output_dir is None:
+            self.output_dir = self.data_dir
+        else:
+            self.output_dir = output_dir
+
         self.rgb_files, self.depth_files, self.label_files, self.meta_files, self.prefix = self.get_split_files(split_name)
 
     def get_split_files(self, split_name):
-        if split_name == "test" or split_name == 'test_perception':
+        if split_name == "test" or split_name == 'test_perception' or split_name == 'test_final':
             names = [fname.split("_")[0] for fname in os.listdir(self.data_dir) if "color" in fname]
         else:
             with open(self.base_path / "training_data" / "splits" / "v2" / f"{split_name}.txt", 'r') as f:
@@ -72,11 +84,14 @@ class PCDDataset(Dataset):
     def load_raw(self, i):
         rgb = np.array(Image.open(self.rgb_files[i])) / 255
         depth = np.array(Image.open(self.depth_files[i])) / 1000 # to meters
+        out_label = self.output_dir / (self.prefix[i] + "_color_kinect.png")
         if os.path.exists(self.label_files[i]):
             label = np.array(Image.open(self.label_files[i]))
-            meta = load_pickle(self.meta_files[i])
         else:
             label = None
+        if os.path.exists(self.meta_files[i]):
+            meta = load_pickle(self.meta_files[i])
+        else:
             meta = None
         return rgb, depth, label, meta
 
@@ -99,7 +114,7 @@ class PCDDataset(Dataset):
         return bbxs
 
     def __len__(self):
-        return len(self.rgb_files) if self.use_full else 10000
+        return len(self.rgb_files) if self.use_full else 1000
 
     def __getitem__(self, i):
         prefix = self.prefix[i]
@@ -107,30 +122,40 @@ class PCDDataset(Dataset):
         v, u = np.indices(depth.shape)
         uv1 = np.stack([u + 0.5, v + 0.5, np.ones_like(depth)], axis=-1)
         #  points = uv1 @ np.linalg.inv(meta["intrinsic"]).T * depth[..., None] # [H, W, 3]
-        points = uv1 @ np.linalg.inv(meta["intrinsic"]).T * depth[..., None] # [H, W, 3]
+        points = uv1 @ np.linalg.inv(intrinsic).T * depth[..., None] # [H, W, 3]
         # augment points and transform
         H, W, _ = points.shape
-        points = (np.concatenate([points, np.ones((H, W, 1))], axis=2) @ np.linalg.inv(meta["extrinsic"]).T)[:, :, :3]
+        points = (np.concatenate([points, np.ones((H, W, 1))], axis=2) @ np.linalg.inv(extrinsic).T)[:, :, :3]
         # next, we split the points up according to their labels
         objects = []
+        object_ids = list(set(np.unique(label)).difference([79, 80, 81]))
+        #  for i, idx in enumerate(object_ids):
         for i, idx in enumerate(meta["object_ids"]):
-            s = meta['scales'][idx]
             mask = np.where(label == idx)
             if (label==idx).sum() == 0:
                 continue
-            name = meta['object_names'][i]
+            if meta is None:
+                name = self.meshes.idx_to_name(idx)
+            else:
+                name = meta['object_names'][i]
             obj_points = points[mask[0], mask[1], :]
             colors = rgb[mask[0], mask[1], :]
+            if meta is None:
+                s = 1
+            else:
+                s = meta['scales'][idx]
             data = {
                 "object_id": idx,
                 "object_name": name,
                 "colors": colors,
                 "points": obj_points,
                 "scale": s,
-                "box": meta['extents'][idx]*meta['scales'][idx]
             }
-            if "poses_world" in meta:
-                data["pose"] = meta["poses_world"][idx]
+            if meta is not None:
+                if "poses_world" in meta:
+                    data["pose"] = meta["poses_world"][idx]
+                if "poses_world" in meta:
+                    data["box"] = meta['extents'][idx]*meta['scales'][idx]
             objects.append(data)
         return objects, prefix
 
@@ -146,10 +171,11 @@ class MaskLoader(Dataset):
         return len(self.pcddata)
 
 class TrainLoader(Dataset):
-    def __init__(self, base_path, split_name, point_number_groups):
+    def __init__(self, base_path, split_name, point_number_groups, device):
         self.pcddata = PCDDataset(base_path, split_name)
         self.point_number_groups = point_number_groups
         self.num_g = 7
+        self.device = device
 
     def resample(self, points):
         M = points.shape[0]
@@ -163,8 +189,9 @@ class TrainLoader(Dataset):
             points = points[inds]
 
         #  inds = np.random.choice(np.arange(0, points.shape[0]), N)
-        pc_t = torch.tensor(points)[:, :3].unsqueeze(0).cuda()
-        inds = fps_cuda.farthest_point_sample(pc_t, N).squeeze(0).cpu().numpy()
+        #  pc_t = torch.tensor(points)[:, :3].unsqueeze(0).cuda()
+        #  inds = fps_cuda.farthest_point_sample(pc_t, N).squeeze(0).cpu().numpy()
+        inds = mesh_sampler.iterative_furthest_point_sampling(points[:, :3], N)
         points = points[inds]
         return len(Ns)-1, points
 

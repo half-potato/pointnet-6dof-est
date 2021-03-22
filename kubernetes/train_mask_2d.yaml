@@ -5,6 +5,7 @@ metadata:
     app: train-mask-2d
   name: train-mask-2d
 spec:
+  backoffLimit: 0
   template:
     metadata:
       labels:

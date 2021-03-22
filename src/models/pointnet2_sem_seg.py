@@ -26,12 +26,13 @@ from models.pointnet_util import PointNetSetAbstraction,PointNetFeaturePropagati
 
 
 class get_model(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, point_dim, num_classes):
         super(get_model, self).__init__()
-        self.sa1 = PointNetSetAbstraction(1024, 0.1, 32, 6 + 3, [32, 32, 64], False)
-        self.sa2 = PointNetSetAbstraction(256, 0.2, 32, 64 + 3, [64, 64, 128], False)
-        self.sa3 = PointNetSetAbstraction(64, 0.4, 32, 128 + 3, [128, 128, 256], False)
-        self.sa4 = PointNetSetAbstraction(16, 0.8, 32, 256 + 3, [256, 256, 512], False)
+        group_all = False
+        self.sa1 = PointNetSetAbstraction(1024, 0.1, 32, point_dim+3, [32, 32, 64], group_all)
+        self.sa2 = PointNetSetAbstraction(256, 0.2, 32, 64 + 3, [64, 64, 128], group_all)
+        self.sa3 = PointNetSetAbstraction(64, 0.4, 32, 128 + 3, [128, 128, 256], group_all)
+        self.sa4 = PointNetSetAbstraction(16, 0.8, 32, 256 + 3, [256, 256, 512], group_all)
         self.fp4 = PointNetFeaturePropagation(768, [256, 256])
         self.fp3 = PointNetFeaturePropagation(384, [256, 256])
         self.fp2 = PointNetFeaturePropagation(320, [256, 128])
@@ -55,7 +56,8 @@ class get_model(nn.Module):
         l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
         l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points)
 
-        x = self.drop1(F.relu(self.bn1(self.conv1(l0_points))))
+        #  x = self.drop1(F.relu(self.bn1(self.conv1(l0_points))))
+        x = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.conv2(x)
         x = F.log_softmax(x, dim=1)
         x = x.permute(0, 2, 1)

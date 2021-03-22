@@ -10,8 +10,9 @@ import json
 import matplotlib.pyplot as plt
 
 base_path = Path("/data/haosu")
-dataset = loader.PCDDataset(base_path, "test")
+#  dataset = loader.PCDDataset(base_path, "test")
 meshes = mesh_sampler.MeshSampler(base_path, base_path / "training_data/objects_v1.csv")
+dataset = loader.PCDDataset(base_path, 'test_final', use_full=True, meshes=meshes)
 #  meshes.build(1000)
 #  meshes.save_cache()
 meshes.load_cache()
@@ -55,7 +56,7 @@ for objects, prefix in tqdm(dataset, total=len(dataset)):
         #  scan_pc.estimate_normals()
         #  scan_norms = np.asarray(scan_pc.normals)
 
-        algo, loss = estimate(ref, ref_cols, scan, scan_cols, max_dim/10, cpd.fast_config)
+        algo, loss = estimate(ref, ref_cols, scan, scan_cols, max_dim/6, cpd.fast_config)
         #  algo.visualize_points()
         #  if abs(algo.s-1) > 0.15 or loss < 10000:
         #      print(f"s: {algo.s}, Trying symmetric config")
@@ -65,7 +66,7 @@ for objects, prefix in tqdm(dataset, total=len(dataset)):
         if abs(algo.s-1) > 0.15 or loss < 10000:
             #  print(f"s: {algo.s}, loss: {loss} Trying color config")
             # bad estimate, try again with more points
-            new_algo, new_loss = estimate(ref, ref_cols, scan, scan_cols, max_dim/12, cpd.color_config)
+            new_algo, new_loss = estimate(ref, ref_cols, scan, scan_cols, max_dim/8, cpd.color_config)
             #  algo.visualize_points()
             algo = algo if new_loss < loss else new_algo
         elif abs(algo.s-1) > 0.15 or loss < 10000:

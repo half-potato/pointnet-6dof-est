@@ -105,6 +105,9 @@ class MeshSampler:
     def __len__(self):
         return self.metadata.shape[0]
 
+    def idx_to_name(self, i):
+        return self.metadata.iloc[i]['object'].item()
+
     def get_meta(self, name):
         return self.metadata[self.metadata['object']==name]
 

@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 parser = argparse.ArgumentParser()
 parser.add_argument('--base_path', type=Path, default=Path("/data/haosu"))
 parser.add_argument('--save_dir', type=Path, default=Path("./"))
-parser.add_argument('--lr', default=1e-3, type=float)
+parser.add_argument('--lr', default=1e-4, type=float)
 parser.add_argument('--batch_size', default=1, type=int)
 parser.add_argument('--backward_freq', default=32, type=int)
 parser.add_argument('--epochs', default=500, type=int)
@@ -23,7 +23,7 @@ base_path = args.base_path
 device = torch.device("cuda:0")
 NUM_OBJECTS = 80
 pc_loader = loader.MaskLoader(base_path, "train")
-dataset = torch.utils.data.DataLoader(pc_loader, num_workers=16, batch_size=args.batch_size, shuffle=True)
+dataset = torch.utils.data.DataLoader(pc_loader, num_workers=16, batch_size=args.batch_size, shuffle=False)
 weights = torch.ones((NUM_OBJECTS)).to(device)
 weights[-1] = 0.1
 
@@ -31,6 +31,7 @@ model = UNet(NUM_OBJECTS).to(device)
 loss_fn = torch.nn.CrossEntropyLoss(weights)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0)
 
+#  ckpt = torch.load("/data/haosu/mask_2D_chpt.pth")
 ckpt = torch.load("mask_2D_chpt.pth")
 model.load_state_dict(ckpt["model"])
 
@@ -57,9 +58,6 @@ for epoch in range(args.epochs):
         model.zero_grad()
         loss.backward()
         optimizer.step()
-        accum_loss += float(loss)
-        acc = float((output.max(dim=1).indices == labels).float().mean())
-        accum_acc += acc
 
         #  plt.imshow(output.max(dim=1).indices.cpu().squeeze())
         #  plt.show()
@@ -70,10 +68,14 @@ for epoch in range(args.epochs):
             accum_loss = 0
             accum_acc = 0
             save()
+            break
+        accum_loss += float(loss)
+        acc = float((output.max(dim=1).indices == labels).float().mean())
+        accum_acc += acc
 
         accuracy += acc
         total_loss += float(loss)
         n += 1
-    print(f"{epoch}: Total loss: {total_loss/n}, Accuracy: {accuracy/n}, LR: {scheduler.get_lr()}, N: {n}")
+    print(f"{epoch}: Total loss: {total_loss/n}, Accuracy: {accuracy/n}, N: {n}")
     save()
 

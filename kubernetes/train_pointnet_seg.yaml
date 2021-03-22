@@ -5,6 +5,7 @@ metadata:
     app: train-pointnet-seg
   name: train-pointnet-seg
 spec:
+  backoffLimit: 0
   template:
     metadata:
       labels:
@@ -25,21 +26,24 @@ spec:
       - name: train-pointnet-seg
         command: ["/bin/sh", "-c"]
         args: 
-        - mkdir /data && cp -R /root/data/haosu /data/ && cd /data/haosu && 
+        - mkdir /data && apt-get install -y --no-install-recommends rsync && rsync -avr --exclude /root/data/haosu/object_cache_all.hdf5 /root/data/haosu /data/ && cd /data/haosu && 
           unzip -q training_data.zip && unzip -q testing_data_pose.zip && unzip -q models.zip && 
-          cd /root/icp/ && python3 src/train_mask.py --save_dir /root/data/haosu/ --epochs 500 --cache_location /data/haosu/frustrum_cache.hdf5 --max_points 200000
+          cd /root/icp/ops && pip install . &&
+          cd /root/icp/ && python3 src/train_mask.py --save_dir /root/data/haosu/ --epochs 500 --cache_location /data/haosu/frustrum_cache.hdf5 --max_points 60000
+          # cp -R /root/data/haosu /data/ 
+          # cd /root/icp/ && python3 src/train_mask.py --save_dir /root/data/haosu/ --epochs 500 --cache_location /data/haosu/frustrum_cache.hdf5 --max_points 200000
           # cd /root/icp/ && python3 src/frustrum_cacher.py --use_full && cp caches/frustrum_cache.hdf5 /root/data/haosu/ &&
         resources:
           limits:
             cpu: "8"
             memory: "12Gi"
             nvidia.com/gpu: 1
-            ephemeral-storage: 100Gi
+            ephemeral-storage: 120Gi
           requests:
             cpu: "8"
             memory: "8Gi"
             nvidia.com/gpu: 1
-            ephemeral-storage: 100Gi
+            ephemeral-storage: 120Gi
         image: gitlab-registry.nautilus.optiputer.net/vivecenter-berkeley-edu/icp:latest
         volumeMounts:
         - mountPath: /root/data

@@ -44,7 +44,7 @@ class UNet(nn.Module):
     def __init__(self, output_size):
         super(UNet, self).__init__()
         # Contraction side
-        bs = 32
+        bs = 64
         self.net1 = downsample_block(bs, first_layer=True) # first two blue
         self.net2 = downsample_block(2*bs) # red then two blue
         self.net3 = downsample_block(4*bs)

@@ -143,8 +143,8 @@ def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False):
         new_points: sampled points data, [B, npoint, nsample, 3+D]
     """
     B, N, C = xyz.shape
-    S = npoint
-    fps_idx = fps_cuda.farthest_point_sample(xyz.contiguous(), npoint) # [B, npoint, C]
+    S = min(npoint, N)
+    fps_idx = fps_cuda.farthest_point_sample(xyz.contiguous(), S) # [B, npoint, C]
     #  fps_idx = farthest_point_sample(xyz, npoint) # [B, npoint, C]
     torch.cuda.empty_cache()
     new_xyz = index_points(xyz, fps_idx)

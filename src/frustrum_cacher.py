@@ -3,8 +3,9 @@ import loader
 import frustrum_loader
 from pathlib import Path
 from tqdm import tqdm
-import fps_cuda
+#  import fps_cuda
 import torch
+import random
 
 import utils
 import cv2
@@ -12,9 +13,11 @@ import open3d
 import matplotlib.pyplot as plt
 import h5py
 import argparse
+from cacher import Cacher
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--use_full', action='store_true')
+parser.add_argument('--cache_location', default=Path('/data/haosu/frustrum_cache.hdf5'), type=Path)
 args = parser.parse_args()
 
 base_path = Path('/data/haosu')
@@ -24,25 +27,10 @@ point_number_groups = [1024, 3000, 5000, 7000, 9000, 11000, 15000, 20000, 50000,
 calib = [514.13902522, 514.13902522, 640, 360, 1280, 720]
 print("Caching frustrums")
 
-f = h5py.File('caches/frustrum_cache.hdf5', 'w')
-f.create_dataset('point_nums', data=point_number_groups)
+cacher = Cacher(args.cache_location, point_number_groups, 7, [('bbxs', [5])])
+print(args.cache_location)
 
-pgs = [f.create_group(f'point_group{i}-{j}') for i, j in enumerate(point_number_groups)]
-for pg, n in zip(pgs, point_number_groups):
-    pg.create_dataset('bbxs', (0, 5), maxshape=(None, 5), chunks=True)
-    pg.create_dataset('pcs', (0, n, 7), maxshape=(None, n, 7), chunks=True)
-
-counts = [0 for _ in point_number_groups]
-def add_to_group(g, bbx, pc):
-    N = pgs[g]['bbxs'].shape[0]
-    pgs[g]['bbxs'].resize(N+1, axis=0)
-    pgs[g]['bbxs'][N] = bbx
-    pgs[g]['pcs'].resize(N+1, axis=0)
-    pgs[g]['pcs'][N] = pc
-
-    counts[g] += 1
-
-for i in tqdm(range(0, len(dataset), 5)):
+for i in tqdm(range(0, len(dataset))):
     # Get frustrums
     raw = dataset.load_raw(i)
     rgb, depth, label, meta = raw
@@ -59,13 +47,23 @@ for i in tqdm(range(0, len(dataset), 5)):
     #  plt.imshow(label)
     #  plt.show()
 
-    frustrums = frustrum_loader.extract_frustrums(raw, fbbxs)
+    margin = random.randint(0, 10)
+    frustrums = frustrum_loader.extract_frustrums(raw, fbbxs, margin=margin)
     # Sample frustrums
     for (pc, lab), bbx in zip(frustrums, fbbxs):
         # Get point number group
         M, D = pc.shape
-        Ns = [p for p in point_number_groups if M >= p]
-        if not Ns:
+        G = [i for i, p in enumerate(point_number_groups) if M <= p]
+        if len(G) == 0:
+            continue
+        G = G[0]
+        N = point_number_groups[G]
+
+        inds = np.random.choice(M, N-M, replace=True)
+        pc = np.concatenate([pc, pc[inds]], axis=0)
+        """
+        G = [i for i, p in enumerate(point_number_groups) if M <= p][0]
+        if not True:
             # pad up to minimum
             N = point_number_groups[0]
             #  pad = np.zeros((N-M, D))
@@ -77,13 +75,20 @@ for i in tqdm(range(0, len(dataset), 5)):
             #  g.create_dataset(f'lab', [lab])
             #  g.create_dataset(f'bbx', data=bbx)
             #  g.create_dataset(f'pc', data=pc)
-            add_to_group(0, bbx, pc)
+            cacher.add_to_group(0, {'bbxs': bbx, 'pcs': pc})
             continue
-        N = Ns[-1]
+        #  N = Ns[-1]
+        G = [i for i, p in enumerate(point_number_groups) if M <= p][0]
+        N = point_number_groups[G]
+        print(N, M)
 
-        pc_t = torch.tensor(pc)[:, :3].unsqueeze(0).cuda()
-        pc_i = fps_cuda.farthest_point_sample(pc_t, N).squeeze(0).cpu().numpy()
-        pc = pc[pc_i]
+        inds = np.random.choice(M, N, replace=True)
+        pc = pc[inds]
+        """
+
+        #  pc_t = torch.tensor(pc)[:, :3].unsqueeze(0).cuda()
+        #  pc_i = fps_cuda.farthest_point_sample(pc_t, N).squeeze(0).cpu().numpy()
+        #  pc = pc[pc_i]
 
         # Display cloud
         #  utils.draw_augpoints([pc], True)
@@ -118,11 +123,7 @@ for i in tqdm(range(0, len(dataset), 5)):
         """
 
         # Add frustrums to each category
-        G = len(Ns)-1
-        add_to_group(G, bbx, pc)
+        cacher.add_to_group(G, {'bbxs': bbx, 'pcs': pc})
 
-print("Sizes of point groups")
-for num_pt, n in zip(point_number_groups, counts):
-    print(f'{num_pt}: {n}')
-f.create_dataset('counts', data=counts)
-f.close()
+cacher.print_sizes()
+cacher.close()

@@ -5,6 +5,7 @@ metadata:
     app: icp
   name: icp
 spec:
+  backoffLimit: 0
   template:
     metadata:
       labels:

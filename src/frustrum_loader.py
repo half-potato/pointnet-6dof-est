@@ -36,12 +36,14 @@ class FrustrumLoader(Dataset):
         return self.N // self.k
 
     def __getitem__(self, i):
-        #  grp = self.group[f'{i}']
         i = i // self.k
         cloud = self.group['pcs'][i]
         bbx = self.group['bbxs'][i]
 
+        std = 0.001
         points = torch.tensor(cloud)[:, 1:].transpose(0, 1).float()
+        noise = torch.rand(*points.shape)*std*2-std
+        points += noise
         labels = torch.tensor(cloud)[:, 0].long()
         labels = torch.clip(labels, 0, 79)
 
@@ -61,7 +63,8 @@ def center_frustrum(points, bbx, calib, labeled=False):
     T = torch.eye(D)
     si = 1 if labeled else 0
     T[si:si+3, si:si+3] = torch.tensor(q.rotation_matrix.T)
-    rotp = T @ points
+    #  rotp = T @ points
+    rotp = points
     ncenters = rotp[si:].median(dim=1, keepdim=True).values
     rotp[si:] -= ncenters
     return rotp

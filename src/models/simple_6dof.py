@@ -34,6 +34,7 @@ class Simple6DOF(nn.Module):
             nn.Linear(1024, num_objects*9),
         )
         self.net = PointNetfeat(global_feat=True, enable_transform=True, feature_transform=False)
+        #  self.net = PointNetfeat(k=6, global_feat=True, enable_transform=False, feature_transform=False)
 
     def forward(self, points):
         # points: (B, N, 3)

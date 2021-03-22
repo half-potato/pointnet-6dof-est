@@ -5,6 +5,7 @@ metadata:
     app: predict-pointnet
   name: predict-pointnet
 spec:
+  backoffLimit: 0
   template:
     metadata:
       labels:

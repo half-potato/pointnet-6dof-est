@@ -5,6 +5,7 @@ metadata:
     app: train-darknet
   name: train-darknet
 spec:
+  backoffLimit: 0
   template:
     metadata:
       labels:

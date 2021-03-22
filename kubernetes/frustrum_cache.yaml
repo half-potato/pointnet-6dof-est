@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app: frustrum-cache
+  name: frustrum-cache
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: frustrum-cache
+    spec:
+      restartPolicy: "Never"
+      containers:
+      - name: frustrum-cache
+        command: ["/bin/sh", "-c"]
+        args: 
+        - mkdir /data && cp -R /root/data/haosu /data/ && cd /data/haosu && 
+          unzip -q training_data.zip && unzip -q testing_data_pose.zip && unzip -q models.zip && 
+          cd /root/icp/ && python3 src/frustrum_cacher.py --cache_location /data/haosu/frustrum_cache.hdf5 --use_full && 
+          cp /data/haosu/frustrum_cache.hdf5 /root/data/haosu/frustrum_cache.hdf5
+        resources:
+          limits:
+            cpu: "8"
+            memory: "12Gi"
+            # nvidia.com/gpu: 1
+            ephemeral-storage: 50Gi
+          requests:
+            cpu: "8"
+            memory: "8Gi"
+            # nvidia.com/gpu: 1
+            ephemeral-storage: 50Gi
+        image: gitlab-registry.nautilus.optiputer.net/vivecenter-berkeley-edu/icp:latest
+        volumeMounts:
+        - mountPath: /root/data
+          name: fs-store
+        - mountPath: /dev/shm
+          name: dshm
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+      - name: fs-store
+        flexVolume:
+          driver: ceph.rook.io/rook
+          fsType: ceph
+          options:
+            clusterNamespace: rook
+            fsName: nautilusfs
+            path: /half-potato
+            mountUser: half-potato
+            mountSecret: ceph-fs-secret
+      imagePullSecrets:
+      - name: regcredlp # this is the secret for you credentials to pull a private image
+
+
+

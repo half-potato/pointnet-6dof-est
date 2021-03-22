@@ -14,7 +14,7 @@ base_path = Path("/data/haosu")
 
 
 device = torch.device("cuda:0")
-pc_loader = loader.TrainLoader(base_path, "train", [20, 500, 1000])
+pc_loader = loader.TrainLoader(base_path, "train", [20, 500, 1000], device)
 #  batch_accum = loader.BatchAccumulator(pc_loader, 128)
 
 meshes = mesh_sampler.MeshSampler(base_path, base_path / "training_data/objects_v1.csv")
